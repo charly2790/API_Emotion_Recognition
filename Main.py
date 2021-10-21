@@ -8,6 +8,12 @@ from pathlib import Path
 from flask import Flask, render_template, request
 from werkzeug.utils import secure_filename
 
+FORMATOS_PERMITIDOS = set(['png','jpg','JPG','PNG','bmp'])
+
+def validarFormato(nomArchivo):
+    extArchivo = nomArchivo.rsplit('.',1)[1]
+    return '.' in nomArchivo and extArchivo in FORMATOS_PERMITIDOS
+
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = './static'
 
@@ -31,6 +37,7 @@ def uploader():
         vTheta = None #DataFrame Theta
         ck_redim = 0
         vError = ""
+
         # Variables p/ redimensionado de la imágen
         vDimRef = 371
         vLimInf = vDimRef - 5
@@ -47,7 +54,7 @@ def uploader():
             vError = "Error 01 - Error al recuperar el archivo de imágen"
             return render_template('Prediction.html', vError=vError)
         #************************************************
-
+        
         # Detector de caras frontales********************
         vDetector = None
         try:
@@ -91,6 +98,12 @@ def uploader():
         #******************************************
 
         vFilename = secure_filename(vFile.filename)
+
+        #Validación de archivo de entrada**********
+        if validarFormato(vFilename) is False:
+            vError = "Error 02 - Formato de archivo erroneo"
+            return render_template('Prediction.html', vError=vError)
+        # ******************************************
 
         # Guardo la imágen en el directorio static
         vFile.save(os.path.join(app.config['UPLOAD_FOLDER'], vFilename))
@@ -235,15 +248,8 @@ def uploader():
 
         vResult = json.dumps(dicResultado)
 
-        vImgLndmks = "img_with_landmarks.png"
-
-        vPathImgWithLmrks = Path(os.path.join(app.config['UPLOAD_FOLDER']))
-
-        vPathImgWithLmrks = vPathImgWithLmrks / vImgLndmks
-
-        cv2.imwrite(str(vPathImgWithLmrks), vImgGray)
-
-        return render_template('Prediction.html', vResultado = str(vResult), nom_imagen=vFilename)
+        #return render_template('Prediction.html', vResultado = str(vResult), nom_imagen=vFilename)
+        return render_template('Prediction.html', vResultado=str(vResult))
                 
     else:
         vError = "Error 00 - Error en la recepción de los parámetros"
