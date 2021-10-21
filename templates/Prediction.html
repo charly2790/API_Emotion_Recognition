@@ -1,0 +1,10 @@
+{% extends 'base/base.html'%}
+
+{% block content%}
+
+	<h2>{{ nom_imagen }}</h2>
+	<h4>{{ vError}}</h4>
+	<h4>{{ vResultado }}</h4>
+	<img src="{{ url_for ('static', filename = nom_imagen)}}">
+
+{% endblock %}
