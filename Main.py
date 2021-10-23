@@ -6,22 +6,20 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from flask import Flask, render_template, request
+from Functions import *
 from werkzeug.utils import secure_filename
 
-FORMATOS_PERMITIDOS = set(['png','jpg','JPG','PNG','bmp'])
-
-def validarFormato(nomArchivo):
-    extArchivo = nomArchivo.rsplit('.',1)[1]
-    return '.' in nomArchivo and extArchivo in FORMATOS_PERMITIDOS
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = './static'
 
+
 @app.route("/")
 def upload_file():
-	return render_template("index.html")
+    return render_template("index.html")
 
-@app.route("/upload", methods = ['POST'])
+
+@app.route("/upload", methods=['POST'])
 def uploader():
     texto = ""
 
@@ -34,7 +32,7 @@ def uploader():
         vRostros = None
         vRostro = None
         vLandmarks = None
-        vTheta = None #DataFrame Theta
+        vTheta = None  # DataFrame Theta
         ck_redim = 0
         vError = ""
 
@@ -53,8 +51,8 @@ def uploader():
         if vFile is None:
             vError = "Error 01 - Error al recuperar el archivo de imágen"
             return render_template('Prediction.html', vError=vError)
-        #************************************************
-        
+        # ************************************************
+
         # Detector de caras frontales********************
         vDetector = None
         try:
@@ -79,12 +77,13 @@ def uploader():
             return render_template('Prediction.html', vError=vError)
         # ******************************************
 
-        #Carga de Matriz de parámetros**************
+        # Carga de Matriz de parámetros**************
         vNomFileTheta = 'mat_parametros_RaFD_CK_1616.csv'
         vTheta = None
 
         try:
-            dfTheta = pd.read_csv(vNomFileTheta, delimiter=';', header=None, dtype=np.float64, decimal=',',float_precision='high')
+            dfTheta = pd.read_csv(vNomFileTheta, delimiter=';', header=None, dtype=np.float64, decimal=',',
+                                  float_precision='high')
         except:
             dfTheta = None
 
@@ -93,13 +92,13 @@ def uploader():
             return render_template('Prediction.html', vError=vError)
         else:
             vTheta = np.asarray(dfTheta)
-            #vError = "Dimensiones: " + str(vTheta.shape[1]) + " x " + str(vTheta.shape[0])
-            #return render_template('Prediction.html', vError=vError)
-        #******************************************
+            # vError = "Dimensiones: " + str(vTheta.shape[1]) + " x " + str(vTheta.shape[0])
+            # return render_template('Prediction.html', vError=vError)
+        # ******************************************
 
         vFilename = secure_filename(vFile.filename)
 
-        #Validación de archivo de entrada**********
+        # Validación de archivo de entrada**********
         if validarFormato(vFilename) is False:
             vError = "Error 02 - Formato de archivo erroneo"
             return render_template('Prediction.html', vError=vError)
@@ -152,7 +151,7 @@ def uploader():
                 vNuevoAncho = int(vImgGray.shape[0] * vPorc)
                 vNuevoAlto = int(vImgGray.shape[1] * vPorc)
 
-                vDim = (vNuevoAlto,vNuevoAlto)
+                vDim = (vNuevoAlto, vNuevoAlto)
 
                 vNuevaImg = None
 
@@ -171,92 +170,58 @@ def uploader():
 
                     if vCara is not None:
                         vRostro = vCara
-        #**********************************************
+        # **********************************************
 
-        vLandmarks = vShapePredictor(vImgGray,vRostro)
-        #Matriz de características "X"
-        vFeatures = np.zeros((1,136))
+        vLandmarks = vShapePredictor(vImgGray, vRostro)
+        # Matriz de características "X"
+        vFeatures = np.zeros((1, 136))
         j = 0
         for i in range(0, 68):
             x = vLandmarks.part(i).x
             y = vLandmarks.part(i).y
 
-            vFeatures[0,j] = int(x)
+            vFeatures[0, j] = int(x)
             j = j + 1
-            vFeatures[0,j] = int(y)
+            vFeatures[0, j] = int(y)
             j = j + 1
 
-            cv2.circle(vImgGray, center = (x, y), radius = 5, color=(0, 255, 0), thickness=-1)
+        #Calculo de la función hipótesis*********************************
+        try:
+            h = hipotesisRL(vFeatures,vTheta)
+        except:
+            h = None
 
-        #Cantidad de imágenes
-        m = vFeatures.shape[0]
+        if h is None:
+            vError = "Error 07 - Error al calcular la función hipotesis"
+            return render_template('Prediction.html', vError=vError)
+        #****************************************************************
 
-        #Número de emociones
-        vNumLabels = vTheta.shape[0]
+        #'h' tiene la salida de los 8 clasificadores
 
-        #Traspuesta de la matriz theta
-        vTranspTheta = np.transpose(vTheta)
+        #Formato del resultado*******************************************
+        vResultado = None
 
-        h = np.zeros((vNumLabels,m),dtype = np.float64)
-        z = np.zeros((vNumLabels, m), dtype=np.float64)
+        try:
+            vResultado = darFormato(h,vFilename)
+        except:
+            vResultado = None
 
-        #se agrega una columna de 1s al comienzo de la matriz de características (vFeatures)
-        vFeatures = np.concatenate((np.ones((m,1)),vFeatures),axis=1)
-
-        #calculo el polinomio 'z'
-        z = np.dot(vFeatures,vTranspTheta)
-
-        #aplico la función sigmoide
-        h = 1/(1+np.exp(-z))
-
-        h = np.transpose(h)
-
-        vCantCols = h.shape[1]
-        dicCol = {}
-
-        for i in range(0,vCantCols):
-
-            vEmociónPredicha = ""
-            vCol = h[:,i]
-
-            #calculo el máximo
-            vMax = np.max(vCol)
-
-            vPosNumMax = int(np.where(vCol == vMax)[0][0])
-
-            if vPosNumMax == 0:
-                vEmociónPredicha = 'Enojo'
-            elif vPosNumMax == 1:
-                vEmociónPredicha = 'Desprecio'
-            elif vPosNumMax == 2:
-                vEmociónPredicha = 'Asco'
-            elif vPosNumMax == 3:
-                vEmociónPredicha = 'Miedo'
-            elif vPosNumMax == 4:
-                vEmociónPredicha = 'Felicidad'
-            elif vPosNumMax == 5:
-                vEmociónPredicha = 'Neutral'
-            elif vPosNumMax == 6:
-                vEmociónPredicha = 'Tristeza'
-            elif vPosNumMax == 7:
-                vEmociónPredicha = 'Sorpresa'
-
-            dicCol = {'Enojo': vCol[0], 'Desprecio': vCol[1], 'Asco': vCol[2], 'Miedo': vCol[3],
-                           'Felicidad': vCol[4], 'Neutral': vCol[5], 'Tristeza': vCol[6], 'Sorpresa': vCol[7]}
-
-            dicResultado = {'Archivo':vFilename, 'salida_clasificadores':dicCol,'emocion_predicha':vEmociónPredicha}
-
-        vResult = json.dumps(dicResultado)
-
-        #return render_template('Prediction.html', vResultado = str(vResult), nom_imagen=vFilename)
-        return render_template('Prediction.html', vResultado=str(vResult))
+        if vResultado is None:
+            vError = "Error 08 - Error al dar formato a la salida de los clasificadores"
+            return render_template('Prediction.html', vError=vError)
+        #****************************************************************
                 
+        #Limpio el servidor
+        os.remove(os.path.join(app.config['UPLOAD_FOLDER'], vFilename))
+
+        return render_template('Prediction.html', vResultado=str(vResultado))
+
     else:
         vError = "Error 00 - Error en la recepción de los parámetros"
         return render_template('Prediction.html', vError=vError)
 
-if __name__ =='__main__':
-	app.run(debug = True,port = 8000)
+if __name__ == '__main__':
+    app.run(debug=True, port=8000)
 
 
 
